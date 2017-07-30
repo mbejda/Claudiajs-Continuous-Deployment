@@ -1,0 +1,482 @@
+{
+    "Parameters": {
+        "PipelineName": {
+            "Type": "String",
+            "Default": "pipline",
+            "Description": "Name of Codepipline"
+        },
+        "GithubRepoOwner": {
+            "Type": "String",
+            "Default": "mbejda",
+            "Description": "Github Repo Owner"
+        },
+        "GithubRepo": {
+            "Type": "String",
+            "Default": "",
+            "Description": "Github Repo Name"
+        },
+        "GithubDeploymentBranch": {
+            "Type": "String",
+            "Default": "master",
+            "Description": "Branch to deploy"
+        },
+        "GithubPersonalToken": {
+            "Type": "String",
+            "Default": "",
+            "Description": "Your Github Personal Token (requred for deployment)"
+        }
+    },
+    "Resources": {
+        "AppServerRootRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "5a110f37-5e1e-428e-8e9f-e504c79f536b"
+                }
+            }
+        },
+        "AppServerRolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyName": "AppServerS3Perms",
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": "s3:*",
+                            "Resource": {
+                                "Fn::Join": [
+                                    "",
+                                    [
+                                        "arn:aws:s3:::",
+                                        {
+                                            "Ref": "AppBucket"
+                                        },
+                                        "/*"
+                                    ]
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "Roles": [
+                    {
+                        "Ref": "AppServerRootRole"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "204dc0a5-442f-4e93-831e-272a736b1061"
+                }
+            }
+        },
+        "AppServerInstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [
+                    {
+                        "Ref": "AppServerRootRole"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "628e2e79-b8af-4ada-b762-f83fa95f775e"
+                }
+            }
+        },
+        "AppBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "9d6a090a-7bd0-460b-9623-d58d2af9893c"
+                }
+            }
+        },
+        "CodeBuild": {
+            "DependsOn": "CodeBuildRole",
+            "Type": "AWS::CodeBuild::Project",
+            "Properties": {
+                "Name": {
+                    "Ref": "PipelineName"
+                },
+                "ServiceRole": {
+                    "Ref": "CodeBuildRole"
+                },
+                "Tags": [],
+                "Artifacts": {
+                    "Type": "CODEPIPELINE",
+                    "Name": {
+                        "Ref": "PipelineName"
+                    }
+                },
+                "TimeoutInMinutes": 60,
+                "Environment": {
+                    "ComputeType": "BUILD_GENERAL1_SMALL",
+                    "Image": "aws/codebuild/nodejs:6.3.1",
+                    "Type": "LINUX_CONTAINER",
+                    "EnvironmentVariables": []
+                },
+                "Source": {
+                    "BuildSpec": "version: 0.2\n\nphases:\n  build:\n    commands:\n      - npm install claudia -g && claudia update\n\nartifacts:\n  files:\n    - ./**/*\n",
+                    "Type": "CODEPIPELINE"
+                },
+                "Description": "Claudiajs Deploy"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "db0c7aba-01d5-474d-a1dd-4ae856b5e4e6"
+                }
+            }
+        },
+        "PipeLine": {
+            "Type": "AWS::CodePipeline::Pipeline",
+            "DependsOn": [
+                "CodePipelineRole",
+                "CodeBuild",
+                "AppBucket"
+            ],
+            "Properties": {
+                "ArtifactStore": {
+                    "Type": "S3",
+                    "Location": {
+                        "Ref": "AppBucket"
+                    }
+                },
+                "RoleArn": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "arn:aws:iam::",
+                            {
+                                "Ref": "AWS::AccountId"
+                            },
+                            ":role/AWS-CodePipeline-Service"
+                        ]
+                    ]
+                },
+                "Stages": [
+                    {
+                        "Name": "Source",
+                        "Actions": [
+                            {
+                                "Name": "Source",
+                                "ActionTypeId": {
+                                    "Category": "Source",
+                                    "Owner": "ThirdParty",
+                                    "Version": "1",
+                                    "Provider": "GitHub"
+                                },
+                                "OutputArtifacts": [
+                                    {
+                                        "Name": "MyApp"
+                                    }
+                                ],
+                                "Configuration": {
+                                    "Owner": {
+                                        "Ref": "GithubRepoOwner"
+                                    },
+                                    "Repo": {
+                                        "Ref": "GithubRepo"
+                                    },
+                                    "Branch": {
+                                        "Ref": "GithubDeploymentBranch"
+                                    },
+                                    "OAuthToken": {
+                                        "Ref": "GithubPersonalToken"
+                                    }
+                                },
+                                "RunOrder": 1
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Build",
+                        "Actions": [
+                            {
+                                "InputArtifacts": [
+                                    {
+                                        "Name": "MyApp"
+                                    }
+                                ],
+                                "Name": "CodeBuild",
+                                "ActionTypeId": {
+                                    "Category": "Build",
+                                    "Owner": "AWS",
+                                    "Version": "1",
+                                    "Provider": "CodeBuild"
+                                },
+                                "OutputArtifacts": [
+                                    {
+                                        "Name": "MyAppBuild"
+                                    }
+                                ],
+                                "Configuration": {
+                                    "ProjectName": {
+                                        "Ref": "CodeBuild"
+                                    }
+                                },
+                                "RunOrder": 1
+                            }
+                        ]
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "7df2ad53-fd33-48fd-a84f-c38476ccee74"
+                }
+            }
+        },
+        "CodeBuildRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "Policies": [
+                    {
+                        "PolicyName": "root",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": "*",
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Action": "sts:AssumeRole",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "codebuild.amazonaws.com"
+                            }
+                        }
+                    ]
+                },
+                "RoleName": "codeBuildClaudia"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "2befdc7e-d4fe-4c89-8be7-6714490f4a2a"
+                }
+            }
+        },
+        "CodePipelineRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Action": "sts:AssumeRole",
+                            "Principal": {
+                                "Service": "codepipeline.amazonaws.com"
+                            },
+                            "Effect": "Allow",
+                            "Sid": ""
+                        }
+                    ]
+                },
+                "RoleName": "CodePiplineRole",
+                "Path": "/service-role/"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "4c8b9b9e-7e34-436a-80da-26ac3b0472e1"
+                }
+            }
+        }
+    },
+    "Metadata": {
+        "AWS::CloudFormation::Designer": {
+            "c82471f0-9203-4a4a-a751-d999c0ff235d": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 60,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "9582513f-2c3c-46b6-925c-e53222d19bc2": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 180,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": [],
+                "isrelatedto": [
+                    "c82471f0-9203-4a4a-a751-d999c0ff235d"
+                ]
+            },
+            "e9498260-7618-44b1-a499-382872160e49": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 180,
+                    "y": 190
+                },
+                "z": 0
+            },
+            "4c8b9b9e-7e34-436a-80da-26ac3b0472e1": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 550,
+                    "y": 60
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "2befdc7e-d4fe-4c89-8be7-6714490f4a2a": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 240,
+                    "y": 30
+                },
+                "z": 1,
+                "embeds": [],
+                "isrelatedto": [
+                    "4c8b9b9e-7e34-436a-80da-26ac3b0472e1",
+                    "9d6a090a-7bd0-460b-9623-d58d2af9893c"
+                ]
+            },
+            "db0c7aba-01d5-474d-a1dd-4ae856b5e4e6": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 360,
+                    "y": 160
+                },
+                "z": 1,
+                "embeds": [],
+                "dependson": [
+                    "2befdc7e-d4fe-4c89-8be7-6714490f4a2a"
+                ],
+                "isrelatedto": [
+                    "2befdc7e-d4fe-4c89-8be7-6714490f4a2a"
+                ]
+            },
+            "7df2ad53-fd33-48fd-a84f-c38476ccee74": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 470,
+                    "y": 330
+                },
+                "z": 1,
+                "embeds": [],
+                "dependson": [
+                    "4c8b9b9e-7e34-436a-80da-26ac3b0472e1",
+                    "db0c7aba-01d5-474d-a1dd-4ae856b5e4e6",
+                    "9d6a090a-7bd0-460b-9623-d58d2af9893c"
+                ],
+                "isrelatedto": [
+                    "4c8b9b9e-7e34-436a-80da-26ac3b0472e1",
+                    "db0c7aba-01d5-474d-a1dd-4ae856b5e4e6",
+                    "9d6a090a-7bd0-460b-9623-d58d2af9893c"
+                ]
+            },
+            "9d6a090a-7bd0-460b-9623-d58d2af9893c": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 60,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "5a110f37-5e1e-428e-8e9f-e504c79f536b": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": -40,
+                    "y": 310
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "628e2e79-b8af-4ada-b762-f83fa95f775e": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": -150,
+                    "y": 210
+                },
+                "z": 1,
+                "embeds": [],
+                "isassociatedwith": [
+                    "5a110f37-5e1e-428e-8e9f-e504c79f536b"
+                ]
+            },
+            "204dc0a5-442f-4e93-831e-272a736b1061": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": -50,
+                    "y": 100
+                },
+                "z": 1,
+                "embeds": [],
+                "isassociatedwith": [
+                    "5a110f37-5e1e-428e-8e9f-e504c79f536b"
+                ],
+                "isrelatedto": [
+                    "9d6a090a-7bd0-460b-9623-d58d2af9893c"
+                ]
+            }
+        }
+    }
+}
